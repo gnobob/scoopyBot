@@ -11,9 +11,9 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
-  static const _channelId   = 'scoopy_alarm_channel';
+  static const _channelId = 'scoopy_alarm_channel';
   static const _channelName = 'Scoopy Alarm';
-  static const _notifId     = 1001;
+  static const _notifId = 1001;
 
   Future<void> init() async {
     // Init timezone — needed for zonedSchedule
@@ -28,8 +28,9 @@ class NotificationService {
 
     const AndroidInitializationSettings androidSettings =
         AndroidInitializationSettings('@mipmap/launcher_icon');
-    const InitializationSettings initSettings =
-        InitializationSettings(android: androidSettings);
+    const InitializationSettings initSettings = InitializationSettings(
+      android: androidSettings,
+    );
 
     await _plugin.initialize(
       settings: initSettings,
@@ -40,7 +41,8 @@ class NotificationService {
     // Create channel — required for Android 8+
     await _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.createNotificationChannel(
           const AndroidNotificationChannel(
             _channelId,
@@ -61,9 +63,10 @@ class NotificationService {
   }
 
   Future<void> requestPermissions() async {
-    final AndroidFlutterLocalNotificationsPlugin? ap =
-        _plugin.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+    final AndroidFlutterLocalNotificationsPlugin? ap = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (ap == null) return;
     try {
       final bool? granted = await ap.requestNotificationsPermission();
@@ -83,36 +86,69 @@ class NotificationService {
   // Call this when the user taps SET REMINDER.
   // The OS delivers the notification at exactly targetTime regardless of
   // whether the app is open, minimized, or in the background.
-  Future<void> scheduleAlarm(DateTime targetTime) async {
+  Future<void> scheduleTimeBasedReminder(DateTime targetTime) async {
+    await _scheduleAlarm(
+      targetTime: targetTime,
+      title: 'Reminder',
+      body: 'Time to clean pet waste.',
+      payload: 'time_based_reminder',
+    );
+  }
+
+  Future<void> scheduleAfterLastCleanReminder(DateTime lastCleaned) async {
+    final DateTime target = lastCleaned.add(const Duration(hours: 24));
+    await _scheduleAlarm(
+      targetTime: target,
+      title: 'Reminder',
+      body: 'It has been 24 hours since the last cleaning.',
+      payload: 'after_last_clean_reminder',
+    );
+  }
+
+  Future<void> _scheduleAlarm({
+    required DateTime targetTime,
+    required String title,
+    required String body,
+    required String payload,
+  }) async {
     await _plugin.cancel(id: _notifId); // cancel any previous
 
-    final tz.TZDateTime scheduledDate =
-        tz.TZDateTime.from(targetTime, tz.local);
+    DateTime safeTarget = targetTime;
+    if (!safeTarget.isAfter(DateTime.now())) {
+      // Avoid scheduling in the past after app restarts/time changes.
+      safeTarget = DateTime.now().add(const Duration(seconds: 5));
+    }
 
-    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      _channelId,
-      _channelName,
-      channelDescription: 'Scoopy cleaning alarm notifications',
-      importance: Importance.max,
-      priority: Priority.high,
-      playSound: true,
-      sound: RawResourceAndroidNotificationSound('alarmsound'),
-      enableVibration: true,
-      icon: '@mipmap/launcher_icon',
-      fullScreenIntent: true,
+    final tz.TZDateTime scheduledDate = tz.TZDateTime.from(
+      safeTarget,
+      tz.local,
     );
+
+    const AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+          _channelId,
+          _channelName,
+          channelDescription: 'Scoopy cleaning alarm notifications',
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: true,
+          sound: RawResourceAndroidNotificationSound('alarmsound'),
+          enableVibration: true,
+          icon: '@mipmap/launcher_icon',
+          fullScreenIntent: true,
+        );
 
     await _plugin.zonedSchedule(
       id: _notifId,
-      title: '🧹 Cleaning Time!',
-      body: 'Your scheduled cleaning session is starting now!',
+      title: title,
+      body: body,
       scheduledDate: scheduledDate,
       notificationDetails: const NotificationDetails(android: androidDetails),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      payload: 'cleaning_alarm',
+      payload: payload,
     );
 
-    debugPrint('OS alarm scheduled for $targetTime');
+    debugPrint('OS alarm scheduled for $safeTarget');
   }
 
   // ── Cancel the OS alarm (e.g. user cancels the reminder) ──────────────────
@@ -124,23 +160,28 @@ class NotificationService {
   // ── Show immediate notification — used by ReminderScreen when app is open ──
   // The _tick() in ReminderScreen still fires this when the app is in
   // foreground, giving the in-app heads-up alongside the OS alarm.
-  Future<void> showAlarmNotification() async {
-    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      _channelId,
-      _channelName,
-      channelDescription: 'Scoopy cleaning alarm notifications',
-      importance: Importance.max,
-      priority: Priority.high,
-      playSound: false, // sound handled by AudioPlayer in ReminderScreen
-      enableVibration: true,
-      icon: '@mipmap/launcher_icon',
-    );
+  Future<void> showAlarmNotification({
+    required String title,
+    required String body,
+    String payload = 'cleaning_alarm',
+  }) async {
+    const AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+          _channelId,
+          _channelName,
+          channelDescription: 'Scoopy cleaning alarm notifications',
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: false, // sound handled by AudioPlayer in ReminderScreen
+          enableVibration: true,
+          icon: '@mipmap/launcher_icon',
+        );
     await _plugin.show(
       id: _notifId,
-      title: '🧹 Cleaning Time!',
-      body: 'Your scheduled cleaning session is starting now!',
+      title: title,
+      body: body,
       notificationDetails: const NotificationDetails(android: androidDetails),
-      payload: 'cleaning_alarm',
+      payload: payload,
     );
     debugPrint('showAlarmNotification() done');
   }
